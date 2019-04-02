@@ -1,0 +1,234 @@
+function [n_img,alpha]=my_filters(img,method,f,Q,d) % img为输入矩阵，method为滤波方法，f为滤波器大小，Q为逆谐波滤波的阶次，
+						d为修正的阿尔法均值滤波中的去除像素点的个数。
+noise_img=imnoise(img,'salt & pepper',0.1);
+[m,n]=size(noise_img);
+p=(f-1)/2;
+padding_img=wextend('2','zpd',noise_img,p);
+n_img=uint8(zeros(m,n));
+
+if(strcmp(method,'arithmetic mean'))%算术均值滤波
+    for i=1:m
+        for j=1:n
+            s=0;
+            for k=1:2*p+1
+                for l=1:2*p+1
+                    s=s+double(padding_img(i+k-1,j+l-1));
+                end
+            end
+            n_img(i,j)=s/f^2;
+        end
+    end
+end
+
+if(strcmp(method,'geometrical mean'))%几何均值滤波
+    for i=1:m
+        for j=1:n
+            s=1;
+            for k=1:2*p+1
+                for l=1:2*p+1
+                    s=s*double(padding_img(i+k-1,j+l-1));
+                end
+            end
+            n_img(i,j)=s^(1/f^2);
+        end
+    end
+end
+
+if(strcmp(method,'harmonic mean'))%谐波均值滤波
+    for i=1:m
+        for j=1:n
+            s=0;
+            for k=1:2*p+1
+                for l=1:2*p+1
+                    s=s+(1/double(padding_img(i+k-1,j+l-1)));
+                end
+            end
+            n_img(i,j)=f^2/s;
+        end
+    end
+end
+
+if(strcmp(method,'inv_harmonic mean'))%逆谐波均值滤波
+    for i=1:m
+        for j=1:n
+            s1=0;s2=0;
+            for k=1:2*p+1
+                for l=1:2*p+1
+                    s1=s1+(double(padding_img(i+k-1,j+l-1)))^(Q+1);
+                    s2=s2+(double(padding_img(i+k-1,j+l-1)))^(Q);
+                end
+            end
+            n_img(i,j)=s1/s2;
+        end
+    end
+end
+
+if(strcmp(method,'median'))%中值滤波
+    for i=1:m
+        for j=1:n
+            model=padding_img(i:i+2*p,j:j+2*p);
+            n_img(i,j)=median(model(:));
+        end
+    end
+end
+
+if(strcmp(method,'max'))%最大滤波
+    for i=1:m
+        for j=1:n
+            model=padding_img(i:i+2*p,j:j+2*p);
+            n_img(i,j)=max(model(:));
+        end
+    end
+end
+
+if(strcmp(method,'min'))%最小滤波
+    for i=1:m
+        for j=1:n
+            model=padding_img(i:i+2*p,j:j+2*p);
+            n_img(i,j)=min(model(:));
+        end
+    end
+end
+
+if(strcmp(method,'middle'))%中点滤波
+    for i=1:m
+        for j=1:n
+            model=double(padding_img(i:i+2*p,j:j+2*p));
+            n_img(i,j)=(min(model(:))+max(model(:)))/2;
+        end
+    end
+end
+
+if(strcmp(method,'alpha_mean'))%阿尔法均值滤波器
+    for i=1:m
+        for j=1:n
+            model=double(padding_img(i:i+2*p,j:j+2*p));
+            sorted_model=sort(model(:));
+            n_img(i,j)=mean(sorted_model(d+1:f*f-d));
+        end
+    end
+end
+
+
+if(strcmp(method,'adaptive_local'))%自适应局部降噪滤波器
+    for i=1:m
+        for j=1:n
+            model=double(padding_img(i:i+2*p,j:j+2*p));
+            vec_model=model(:);
+            m=mean(vec_model);
+            v=var(vec_model);
+            if(v>sigma)
+                n_img(i,j)=noise_img(i,j)-(noise_img(i,j)-m);
+                
+            else
+                n_img(i,j)=noise_img(i,j)-(v/sigma)*(noise_img(i,j)-m);
+            end
+            
+        end
+    end
+end
+if(strcmp(method,'adaptive median'))
+    for i=1:m
+        for j=1:n
+            flag=0;
+            for k=1:p
+                
+                model=padding_img(i-k+p:i+k+p,j-k+p:j+k+p);
+                zmin=double(min(model(:)));
+                zmax=double(max(model(:)));
+                zmed=double(median(model(:)));
+                A1=zmed-zmin;
+                A2=zmed-zmax;
+                if((A1>0)&&(A2<0))
+                    flag=1;
+                    zxy=double(noise_img(i,j));
+                    if((zxy-zmin<0)&&(zxy-zmax<0))
+                        n_img(i,j)=zxy;
+                    end
+                    n_img(i,j)=zmed;
+                    break;
+                end        
+            end
+            if(flag==0)
+                n_img(i,j)=zmed;
+            end
+        end
+    end
+end
+
+n_img=uint8(n_img);
+
+P1=0;P2=0;
+for i=1:m
+    for j=1:n
+        P1=P1+double(noise_img(i,j))^2;
+        P2=P2+double(n_img(i,j))^2;
+    end
+end
+alpha=100*P2/P1;
+
+figure;
+subplot(121),imshow(noise_img);title('噪声图像');
+subplot(122),imshow(n_img);title('滤波图像');
+end
+
+
+
+function n_img=bedim_image(img,a,b,T)%运动模糊
+[m,n]=size(img);
+s=fft2(double(img));
+% s=fftshift(s);
+H=zeros(m,n);
+ss=zeros(m,n);
+for i=1:m
+    for j=1:n
+    power=pi*(a*i+b*j);
+    H(i,j)=T*sin(power)*exp(-sqrt(-1)*power)/power;
+    ss(i,j)=s(i,j)*H(i,j);
+    end
+end
+% ss=ifftshift(ss);
+n_img=ifft2(ss);
+n_img=256*n_img/max(n_img(:));
+n_img=real(n_img);
+
+n_img=uint8(n_img);
+
+figure;
+subplot(1,2,1);imshow(img);title('original image');
+subplot(1,2,2);imshow(n_img);title('changed image');
+end
+
+
+function n_img=my_rebuild_filter(or_img,mu,sigma,k,V) %mu为高斯噪声的均值，sigma为方差，k为维纳滤波的系数，V为最小二乘滤波的噪声强度系数
+model=fspecial('motion',50,45);
+or_img=imfilter(or_img,model,'circular','conv');
+noise=floor(random('norm',mu,sigma,[512,512]));
+img=double(or_img)+noise;
+[m,n]=size(img);
+s=fft2(img);
+s=fftshift(s);
+H=zeros(m,n);
+W=zeros(m,n);
+ss=zeros(m,n);
+for i=1:m
+    for j=1:n
+    power=pi*(0.01*i+0.01*j);
+    H(i,j)=sin(power)*exp(-sqrt(-1)*power)/power;
+    W(i,j)=abs(H(i,j))^2/(H(i,j)*(abs(H(i,j))^2+k));
+    ss(i,j)=s(i,j)*W(i,j);
+    end
+end
+ss=ifftshift(ss);
+n_img=ifft2(ss);
+n_img=256*n_img/max(n_img(:));
+n_img=real(n_img);
+n_img=uint8(n_img);
+noisepower=V*m*n;
+[g,l]=deconvreg(or_img,model,noisepower);
+figure;
+subplot(121);imshow(g);title('约束最小二乘滤波图像');
+subplot(122);imshow(n_img);title('维纳滤波图像');
+
+end
+
